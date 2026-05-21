@@ -87,13 +87,42 @@ vec3 Li(Ray& primary_ray)
 	///////////////////////////////////////////////////////////////////
 	// Calculate Direct Illumination from light.
 	///////////////////////////////////////////////////////////////////
+	/*{
+	const float distance_to_light = length(point_light.position - hit.position);
+	const float falloff_factor = 1.0f / (distance_to_light * distance_to_light);
+	vec3 Li = point_light.intensity_multiplier * point_light.color * falloff_factor;
+	vec3 wi = normalize(point_light.position - hit.position);
+	L = mat.f(wi, hit.wo, hit.shading_normal) * Li * std::max(0.0f, dot(wi, hit.shading_normal));
+	}*/
+	// -----------------------------------------------------------------------------
+	// FEATURE: Shadow Ray Visibility Testing
+	// Shoot a shadow ray toward the light source to test visibility and generate hard shadows.
 	{
 		const float distance_to_light = length(point_light.position - hit.position);
-		const float falloff_factor = 1.0f / (distance_to_light * distance_to_light);
-		vec3 Li = point_light.intensity_multiplier * point_light.color * falloff_factor;
 		vec3 wi = normalize(point_light.position - hit.position);
-		L = mat.f(wi, hit.wo, hit.shading_normal) * Li * std::max(0.0f, dot(wi, hit.shading_normal));
+		// Create shadow ray
+		Ray shadowRay;
+		// Offset ray origin slightly along geometry normal to avoid self-intersections
+		shadowRay.o = hit.position + hit.geometry_normal * EPSILON;
+		// Direction toward light
+		shadowRay.d = wi;
+		// Limit shadow ray to stop at the light source
+		shadowRay.tnear = EPSILON;
+		shadowRay.tfar = distance_to_light - EPSILON;
+
+		// If the light is visible, compute direct illumination
+		if (!occluded(shadowRay))
+		{
+			const float falloff_factor = 1.0f / (distance_to_light * distance_to_light);
+			vec3 Li = point_light.intensity_multiplier
+				* point_light.color
+				* falloff_factor;
+			L = mat.f(wi, hit.wo, hit.shading_normal)
+				* Li
+				* std::max(0.0f, dot(wi, hit.shading_normal));
+		}
 	}
+	// -----------------------------------------------------------------------------
 	// Return the final outgoing radiance for the primary ray
 	return L;
 }
