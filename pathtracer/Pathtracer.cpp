@@ -67,9 +67,18 @@ vec3 Lenvironment(const vec3& wi)
 /// Calculate the radiance going from one point (r.hitPosition()) in one
 /// direction (-r.d), through path tracing.
 ///////////////////////////////////////////////////////////////////////////
-vec3 Li(Ray& primary_ray)
+//vec3 Li(Ray& primary_ray)
+vec3 Li(Ray& primary_ray, int depth)
 {
 	vec3 L = vec3(0.0f);
+	// -----------------------------------------------------------------------------
+	// FEATURE: Recursive Bounce Depth Control
+	// Stop recursive ray tracing once maximum bounce depth is reached.
+	if (depth <= 0)
+	{
+		return vec3(0.0f);
+	}
+	// -----------------------------------------------------------------------------
 	vec3 path_throughput = vec3(1.0);
 	Ray current_ray = primary_ray;
 
@@ -121,6 +130,28 @@ vec3 Li(Ray& primary_ray)
 				* Li
 				* std::max(0.0f, dot(wi, hit.shading_normal));
 		}
+	}
+	// -----------------------------------------------------------------------------
+	// -----------------------------------------------------------------------------
+	// FEATURE: Recursive Reflection Rays
+	// Trace reflected rays recursively to simulate mirror-like reflections.
+
+	vec3 reflectionDirection = reflect(current_ray.d, hit.shading_normal);
+	Ray reflectionRay;
+
+	// Offset origin slightly to avoid self-intersections
+	reflectionRay.o = hit.position + hit.geometry_normal * EPSILON;
+	
+	reflectionRay.d = normalize(reflectionDirection);
+
+	// Trace reflected radiance recursively
+	if (intersect(reflectionRay))
+	{
+		L += 0.3f * Li(reflectionRay, depth - 1);
+	}
+	else
+	{
+		L += 0.3f * Lenvironment(reflectionRay.d);
 	}
 	// -----------------------------------------------------------------------------
 	// Return the final outgoing radiance for the primary ray
@@ -183,7 +214,8 @@ void tracePaths(const glm::mat4& V, const glm::mat4& P)
 			if(intersect(primaryRay))
 			{
 				// If it hit something, evaluate the radiance from that point
-				color = Li(primaryRay);
+				//color = Li(primaryRay);
+				color = Li(primaryRay, settings.max_bounces);
 			}
 			else
 			{
