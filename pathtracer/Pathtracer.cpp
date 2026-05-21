@@ -237,40 +237,59 @@ void tracePaths(const glm::mat4& V, const glm::mat4& P)
 	{
 		for(int x = 0; x < rendered_image.width; x++)
 		{
-			vec3 color;
-			Ray primaryRay;
-			primaryRay.o = camera_pos;
-			// Create a ray that starts in the camera position and points toward
-			// the current pixel on a virtual screen.
-			/*vec2 screenCoord = vec2(float(x) / float(rendered_image.width),
-			                        float(y) / float(rendered_image.height));*/
-			// -----------------------------------------------------------------------------
-			// FEATURE: Jittered Sampling / Stochastic Anti-Aliasing
-			// Randomly jitter the sampling position inside each pixel for stochastic anti-aliasing.
-			float jitterX = randf();
-			float jitterY = randf();
+			// FEATURE: Multiple Samples Per Pixel (SPP)
+			// Trace multiple randomized paths per pixel and average them to reduce Monte Carlo noise.
+			const int spp = 4;
 
-			vec2 screenCoord = vec2(
-				(float(x) + jitterX) / float(rendered_image.width),
-				(float(y) + jitterY) / float(rendered_image.height)
-			);
-			// -----------------------------------------------------------------------------
-			// Calculate direction
-			vec4 viewCoord = vec4(screenCoord.x * 2.0f - 1.0f, screenCoord.y * 2.0f - 1.0f, 1.0f, 1.0f);
-			vec3 p = homogenize(inverse(P * V) * viewCoord);
-			primaryRay.d = normalize(p - camera_pos);
-			// Intersect ray with scene
-			if(intersect(primaryRay))
+			vec3 color = vec3(0.0f);
+
+			for (int sample = 0; sample < spp; sample++)
 			{
-				// If it hit something, evaluate the radiance from that point
-				//color = Li(primaryRay);
-				color = Li(primaryRay, settings.max_bounces);
+				Ray primaryRay;
+				primaryRay.o = camera_pos;
+				// Create a ray that starts in the camera position and points toward
+				// the current pixel on a virtual screen.
+				/*vec2 screenCoord = vec2(float(x) / float(rendered_image.width),
+										float(y) / float(rendered_image.height));*/
+										// -----------------------------------------------------------------------------
+										// FEATURE: Jittered Sampling / Stochastic Anti-Aliasing
+										// Randomly jitter the sampling position inside each pixel for stochastic anti-aliasing.
+				float jitterX = randf();
+				float jitterY = randf();
+
+				vec2 screenCoord = vec2(
+					(float(x) + jitterX) / float(rendered_image.width),
+					(float(y) + jitterY) / float(rendered_image.height)
+				);
+				// -----------------------------------------------------------------------------
+				// Calculate direction
+				vec4 viewCoord = vec4(screenCoord.x * 2.0f - 1.0f, screenCoord.y * 2.0f - 1.0f, 1.0f, 1.0f);
+				vec3 p = homogenize(inverse(P * V) * viewCoord);
+				primaryRay.d = normalize(p - camera_pos);
+				// Intersect ray with scene
+				/*if (intersect(primaryRay))
+				{
+					// If it hit something, evaluate the radiance from that point
+					//color = Li(primaryRay);
+					color = Li(primaryRay, settings.max_bounces);
+				}
+				else
+				{
+					// Otherwise evaluate environment
+					color = Lenvironment(primaryRay.d);
+				}*/
+				if (intersect(primaryRay))
+				{
+					color += Li(primaryRay, settings.max_bounces);
+				}
+				else
+				{
+					color += Lenvironment(primaryRay.d);
+				}
 			}
-			else
-			{
-				// Otherwise evaluate environment
-				color = Lenvironment(primaryRay.d);
-			}
+			// Average all samples for this pixel
+			color /= float(spp);
+			
 			// Accumulate the obtained radiance to the pixels color
 			float n = float(rendered_image.number_of_samples);
 			rendered_image.data[y * rendered_image.width + x] =
