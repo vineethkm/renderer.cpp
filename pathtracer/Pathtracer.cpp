@@ -145,13 +145,33 @@ vec3 Li(Ray& primary_ray, int depth)
 	reflectionRay.d = normalize(reflectionDirection);
 
 	// Trace reflected radiance recursively
-	if (intersect(reflectionRay))
+	/*if (intersect(reflectionRay))
 	{
 		L += 0.3f * Li(reflectionRay, depth - 1);
 	}
 	else
 	{
 		L += 0.3f * Lenvironment(reflectionRay.d);
+	}*/
+
+	// FEATURE: Material-Based Reflectivity
+	// Adjust reflection strength based on material color intensity.
+
+	float reflectivity =
+		(hit.material->m_color.r +
+			hit.material->m_color.g +
+			hit.material->m_color.b) / 3.0f;
+
+	// Reduce overall reflection strength
+	reflectivity *= 0.3f;
+
+	if (intersect(reflectionRay))
+	{
+		L += reflectivity * Li(reflectionRay, depth - 1);
+	}
+	else
+	{
+		L += reflectivity * Lenvironment(reflectionRay.d);
 	}
 	// -----------------------------------------------------------------------------
 	// Return the final outgoing radiance for the primary ray
