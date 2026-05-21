@@ -174,6 +174,35 @@ vec3 Li(Ray& primary_ray, int depth)
 		L += reflectivity * Lenvironment(reflectionRay.d);
 	}
 	// -----------------------------------------------------------------------------
+	// -----------------------------------------------------------------------------
+	// FEATURE: Indirect Diffuse Bounce
+	// Sample a random diffuse bounce direction for simple Monte Carlo global illumination.
+
+	WiSample indirectSample = mat.sample_wi(hit.wo, hit.shading_normal);
+
+	Ray indirectRay;
+
+	// Offset ray origin slightly to avoid self-intersections
+	indirectRay.o = hit.position + hit.geometry_normal * EPSILON;
+
+	indirectRay.d = normalize(indirectSample.wi);
+
+	// Trace indirect bounce recursively
+	if (intersect(indirectRay))
+	{
+		vec3 indirectLight = Li(indirectRay, depth - 1);
+
+		L += indirectSample.f
+			* indirectLight
+			* std::max(0.0f, dot(indirectRay.d, hit.shading_normal));
+	}
+	else
+	{
+		L += indirectSample.f
+			* Lenvironment(indirectRay.d)
+			* std::max(0.0f, dot(indirectRay.d, hit.shading_normal));
+	}
+	// -----------------------------------------------------------------------------
 	// Return the final outgoing radiance for the primary ray
 	return L;
 }
