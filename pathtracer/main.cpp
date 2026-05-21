@@ -177,6 +177,9 @@ void initialize()
 	///////////////////////////////////////////////////////////////////////////
 	pathtracer::settings.max_bounces = 8;
 	pathtracer::settings.max_paths_per_pixel = 0; // 0 = Infinite
+
+	pathtracer::settings.spp = 4;
+	pathtracer::settings.reflection_strength = 0.3f;
 #ifdef _DEBUG
 	pathtracer::settings.subsampling = 16;
 #else
@@ -476,6 +479,8 @@ void gui()
 		ImGui::SliderInt("Subsampling", &pathtracer::settings.subsampling, 1, 16);
 		ImGui::SliderInt("Max Bounces", &pathtracer::settings.max_bounces, 0, 16);
 		ImGui::SliderInt("Max Paths Per Pixel", &pathtracer::settings.max_paths_per_pixel, 0, 1024);
+		ImGui::SliderInt("Samples Per Pixel", &pathtracer::settings.spp, 1, 32);
+		ImGui::SliderFloat("Reflection Strength", &pathtracer::settings.reflection_strength, 0.0f, 1.0f);
 		if(ImGui::Button("Restart Pathtracing"))
 		{
 			pathtracer::restart();

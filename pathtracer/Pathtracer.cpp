@@ -163,7 +163,7 @@ vec3 Li(Ray& primary_ray, int depth)
 			hit.material->m_color.b) / 3.0f;
 
 	// Reduce overall reflection strength
-	reflectivity *= 0.3f;
+	reflectivity *= settings.reflection_strength;
 
 	if (intersect(reflectionRay))
 	{
@@ -239,7 +239,7 @@ void tracePaths(const glm::mat4& V, const glm::mat4& P)
 		{
 			// FEATURE: Multiple Samples Per Pixel (SPP)
 			// Trace multiple randomized paths per pixel and average them to reduce Monte Carlo noise.
-			const int spp = 4;
+			const int spp = settings.spp;
 
 			vec3 color = vec3(0.0f);
 
