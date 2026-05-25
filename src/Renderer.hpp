@@ -3,13 +3,15 @@
 #include <glm/glm.hpp>
 #include <map>
 #include <string>
+#include <vector>
+#include <Model.h>
 
 using namespace glm;
 
 class Renderer {
 private:
   // Window Atributes
-  SDL_Window *g_window = nullptr;
+  // SDL_Window *g_window = nullptr;
   int windowsWdith = 0, windowHeight = 0;
 
   // Time
@@ -17,8 +19,8 @@ private:
   float deltaTime = 0.0f;
 
   // Shader Programs
-  Gluint shaderProgram;
-  Gluint simpleShaderProgram;
+  GLuint shaderProgram;
+  GLuint simpleShaderProgram;
 
   //  GL texture to put pathtracing result into
   uint32_t pathtracer_result_txt_id;

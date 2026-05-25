@@ -141,13 +141,14 @@ Model* loadModelFromOBJ(std::string path)
 	tinyobj::attrib_t attrib;
 	std::vector<tinyobj::shape_t> shapes;
 	std::vector<tinyobj::material_t> materials;
-	std::string err;
+	std::string warn, err;
 	// Expect '.mtl' file in the same directory and triangulate meshes
-	bool ret = tinyobj::LoadObj(&attrib, &shapes, &materials, &err,
-	                            (directory + filename + extension).c_str(), directory.c_str(), true);
-	if(!err.empty())
+	std::string filename_full = directory + filename + extension;
+	bool ret = tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err,
+								filename_full.c_str(), directory.c_str(), true, false);
+	if(!warn.empty())
 	{ // `err` may contain warning message.
-		std::cerr << err << std::endl;
+		std::cerr << warn << std::endl;
 	}
 	if(!ret)
 	{

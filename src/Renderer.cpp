@@ -1,6 +1,7 @@
 #include "Renderer.hpp"
 #include "labhelper.h"
 
+#ifdef Test
 Renderer::Renderer() {
   g_window = labhelper::init_window_SDL("PathTracer", 1280, 720);
 }
@@ -86,3 +87,5 @@ void Renderer::initialize() {
   ///////////////////////////////////////////////////////////////////////////
   // glEnable(GL_FRAMEBUFFER_SRGB);
 }
+
+#endif
