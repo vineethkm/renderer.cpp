@@ -1,6 +1,5 @@
 #pragma once
-#include <embree2/rtcore.h>
-#include <embree2/rtcore_ray.h>
+#include <embree4/rtcore.h>
 #include "Model.h"
 #include <glm/glm.hpp>
 #include <map>
@@ -16,7 +15,7 @@ struct Intersection
 	// Point where the ray intersected with geometry
 	glm::vec3 position;
 
-	// Normal of the intersected triangle
+	// Normal of the intersected triangle (face normal)
 	glm::vec3 geometry_normal;
 
 	// Interpolated normal between the three vertex normals of the triangle
@@ -33,11 +32,11 @@ struct Intersection
 };
 
 ///////////////////////////////////////////////////////////////////////////
-// This struct is what an embree Ray must look like. It contains the
-// information about the ray to be shot and (after intersect() has been
-// called) the geometry the ray hit.
+// Our own Ray struct. We keep ray and hit data together for convenience,
+// mirroring the old Embree 2 layout. Internally we convert to/from
+// RTCRayHit (for intersect) and RTCRay (for occluded) in embree.cpp.
 ///////////////////////////////////////////////////////////////////////////
-struct RTCORE_ALIGN(16) Ray
+struct Ray
 {
 	Ray(const glm::vec3& origin = glm::vec3(0.0f),
 	    const glm::vec3& direction = glm::vec3(0.0f),
@@ -55,27 +54,25 @@ struct RTCORE_ALIGN(16) Ray
 
 	// `o`: origin position of the ray
 	glm::vec3 o;
-	float align0;
 
 	// `d`: direction of the ray
 	glm::vec3 d;
-	float align1;
 
-	// `tnear`, `tfar`: starting distance and final distance to look for intersections
-	float tnear = 0.0f, tfar = FLT_MAX;
-	float time = 0.0f;
+	// `tnear`, `tfar`: starting and ending distance for intersection search
+	float tnear = 0.0f;
+	float tfar  = FLT_MAX;
+
+	float time  = 0.0f;
 	uint32_t mask = 0xFFFFFFFF;
 
-
 	////////////////////////////
-	// Hit Data (do not modify)
+	// Hit data (populated by intersect(), do not set manually)
 
-	// Normal of the surface
+	// Geometry normal (Ng) of the hit surface — un-normalized
 	glm::vec3 n;
-	float align2;
 
-	// UV of the intersected triangle
-	float u, v;
+	// Barycentric coordinates of the hit point within the triangle
+	float u = 0.0f, v = 0.0f;
 
 	uint32_t geomID = RTC_INVALID_GEOMETRY_ID;
 	uint32_t primID = RTC_INVALID_GEOMETRY_ID;
@@ -92,26 +89,23 @@ void addModel(const labhelper::Model* model, const glm::mat4& model_matrix);
 // Build an acceleration structure for the scene
 void buildBVH();
 
-///////////////////////////////////////////////////////////////////////////
 // Reinitialize the scene
-///////////////////////////////////////////////////////////////////////////
 void reinitScene();
-
 
 ///////////////////////////////////////////////////////////////////////////
 // Ray intersection functions
 ///////////////////////////////////////////////////////////////////////////
 
-// Test a ray against the scene and find the closest intersection
+// Test a ray against the scene and find the closest intersection.
+// Populates the hit fields of `r` on success.
 bool intersect(Ray& r);
 
-// This returns the intersection information for a ray.
-// Use after calling `intersect`
+// Returns intersection details for a ray that has already been passed
+// through intersect() successfully.
 Intersection getIntersection(const Ray& r);
 
-
-// Test whether a ray is intersected anywhere by the scene
-// (does not return an intersection, as it doesn't find the closest one)
+// Test whether a ray is occluded anywhere by the scene.
+// Does NOT find the closest hit — just returns true/false.
 bool occluded(Ray& r);
 
 } // namespace pathtracer

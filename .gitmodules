@@ -4,9 +4,6 @@
 [submodule "lib/stb"]
 	path = lib/stb
 	url = https://github.com/nothings/stb.git
-[submodule "lib/embree"]
-	path = lib/embree
-	url = git@github.com:RenderKit/embree.git
 [submodule "lib/tinyobjloader"]
 	path = lib/tinyobjloader
 	url = https://github.com/tinyobjloader/tinyobjloader.git

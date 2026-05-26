@@ -1,7 +1,7 @@
 # Minimal Makefile to build the renderer using system Embree 4
 
 CXX := g++
-CXXFLAGS := -std=c++17 -O2 -fopenmp -Iinc -Ilabhelper -Ilib/imgui -Ilib/stb -Ilib/tinyobjloader -Ilib/embree/include -DGLM_ENABLE_EXPERIMENTAL
+CXXFLAGS := -std=c++17 -O2 -fopenmp -Iinc -Ilabhelper -Ilib/imgui -Ilib/stb -Ilib/tinyobjloader -DGLM_ENABLE_EXPERIMENTAL
 
 # Try to get SDL2 flags via pkg-config if available
 SDL_CFLAGS := $(shell pkg-config --cflags sdl2 2>/dev/null)

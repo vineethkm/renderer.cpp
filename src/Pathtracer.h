@@ -1,9 +1,9 @@
 #pragma once
-#include <glm/glm.hpp>
-#include <vector>
-#include <Model.h>
-#include <omp.h>
 #include "HDRImage.h"
+#include <Model.h>
+#include <glm/glm.hpp>
+#include <omp.h>
+#include <vector>
 
 #ifdef M_PI
 #undef M_PI
@@ -11,70 +11,58 @@
 #define M_PI 3.14159265359f
 #define EPSILON 0.0001f
 
-
-
-
 using namespace glm;
 
-namespace pathtracer
-{
+namespace pathtracer {
 ///////////////////////////////////////////////////////////////////////////////
 // Path Tracer settings
 ///////////////////////////////////////////////////////////////////////////////
-extern struct Settings
-{
-	int subsampling;
-	int max_bounces;
-	int max_paths_per_pixel;
-	// Monte Carlo sampling settings
-	int spp;
-	// Recursive reflection strength
-	float reflection_strength;
+struct Settings {
+  int subsampling;
+  int max_bounces;
+  int max_paths_per_pixel;
+  // Monte Carlo sampling settings
+  int spp;
+  // Recursive reflection strength
+  float reflection_strength;
 };
 extern Settings settings;
 
 ///////////////////////////////////////////////////////////////////////////////
 // Environment
 ///////////////////////////////////////////////////////////////////////////////
-extern struct Environment
-{
-	float multiplier;
-	HDRImage map;
+struct Environment {
+  float multiplier;
+  HDRImage map;
 };
 extern Environment environment;
 
 ///////////////////////////////////////////////////////////////////////////
 // The rendered image
 ///////////////////////////////////////////////////////////////////////////
-extern struct Image
-{
-	int width, height, number_of_samples = 0;
-	std::vector<glm::vec3> data;
-	float* getPtr()
-	{
-		return &data[0].x;
-	}
+struct Image {
+  int width, height, number_of_samples = 0;
+  std::vector<glm::vec3> data;
+  float *getPtr() { return &data[0].x; }
 };
 extern Image rendered_image;
 
 ///////////////////////////////////////////////////////////////////////////////
 // The light sources
 ///////////////////////////////////////////////////////////////////////////////
-struct PointLight
-{
-	float intensity_multiplier;
-	vec3 color;
-	vec3 position;
+struct PointLight {
+  float intensity_multiplier;
+  vec3 color;
+  vec3 position;
 };
 extern PointLight point_light;
 
-struct DiscLight
-{
-	float intensity_multiplier;
-	vec3 color;
-	vec3 position;
-	vec3 direction;
-	float radius;
+struct DiscLight {
+  float intensity_multiplier;
+  vec3 color;
+  vec3 position;
+  vec3 direction;
+  float radius;
 };
 extern std::vector<DiscLight> disc_lights;
 
@@ -97,5 +85,5 @@ void resize(int w, int h);
 ///////////////////////////////////////////////////////////////////////////
 /// Trace one path per pixel
 ///////////////////////////////////////////////////////////////////////////
-void tracePaths(const mat4& V, const mat4& P);
+void tracePaths(const mat4 &V, const mat4 &P);
 }; // namespace pathtracer
