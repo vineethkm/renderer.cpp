@@ -1,14 +1,14 @@
-
 #include "Pathtracer.h"
 #include "embree.h"
 #include "sampling.h"
 #include <GL/glew.h>
 #include <Model.h>
+#include <backends/imgui_impl_opengl3.h>
+#include <backends/imgui_impl_sdl2.h>
 #include <chrono>
 #include <glm/glm.hpp>
 #include <glm/gtx/transform.hpp>
 #include <imgui.h>
-#include <imgui_impl_sdl_gl3.h>
 #include <iostream>
 #include <labhelper.h>
 #include <stb_image.h>
@@ -189,20 +189,19 @@ void initialize() {
   // vec3 position;
   // vec3 direction;
   // float radius;
-  /*
-  pathtracer::disc_lights.push_back( pathtracer::DiscLight{
-                                                                     1000,
-                                                                     {1, 0.8,
-  0},
-                                                                     {-8, 10,
-  8}, glm::normalize(glm::vec3(10, -2, 10)), 8.0 } );
-  pathtracer::disc_lights.push_back( pathtracer::DiscLight{
-                                                                     1000,
-                                                                     {0.1, 0.3,
-  1},
-                                                                     {-10, 20,
-  -5}, glm::normalize(-glm::vec3(-10, 20, -5)), 10.0 } );
-  */
+
+  // pathtracer::disc_lights.push_back(
+  //     pathtracer::DiscLight{1000,
+  //                           {1, 0.8, 0},
+  //                           {-8, 10, 8},
+  //                           glm::normalize(glm::vec3(10, -2, 10)),
+  //                           8.0});
+  // pathtracer::disc_lights.push_back(
+  //     pathtracer::DiscLight{1000,
+  //                           {0.1, 0.3, 1},
+  //                           {-10, 20, -5},
+  //                           glm::normalize(-glm::vec3(-10, 20, -5)),
+  //                           10.0});
 
   ///////////////////////////////////////////////////////////////////////////
   // Load environment map
@@ -237,7 +236,7 @@ void display(void) {
         old_subsampling != pathtracer::settings.subsampling) {
       pathtracer::resize(w, h);
       windowWidth = w;
-      windowWidth = h;
+      windowHeight = h;
       old_subsampling = pathtracer::settings.subsampling;
     }
   }
@@ -318,7 +317,7 @@ bool handleEvents(void) {
   ImGuiIO &io = ImGui::GetIO();
 
   while (SDL_PollEvent(&event)) {
-    ImGui_ImplSdlGL3_ProcessEvent(&event);
+    ImGui_ImplSDL2_ProcessEvent(&event);
 
     if (event.type == SDL_QUIT ||
         (event.type == SDL_KEYUP && event.key.keysym.sym == SDLK_ESCAPE)) {
@@ -408,31 +407,28 @@ void gui() {
   ///////////////////////////////////////////////////////////////////////////
   // Helpers for getting lists of materials and meshes into widgets
   ///////////////////////////////////////////////////////////////////////////
-  static auto model_getter = [](void *scene, int idx, const char **text) {
+  // Modern ImGui (1.78+): Combo/ListBox use a getter with signature
+  // (void* data, int idx) -> const char*  instead of the old
+  // (void* data, int idx, const char** out) -> bool overload.
+  static auto model_getter = [](void *scene, int idx) -> const char * {
     auto &s = *(static_cast<scene_t *>(scene));
-    if (idx < 0 || idx >= static_cast<int>(s.models.size())) {
-      return false;
-    }
-    *text = s.models[idx].model->m_name.c_str();
-    return true;
+    if (idx < 0 || idx >= static_cast<int>(s.models.size()))
+      return nullptr;
+    return s.models[idx].model->m_name.c_str();
   };
 
-  static auto mesh_getter = [](void *vec, int idx, const char **text) {
+  static auto mesh_getter = [](void *vec, int idx) -> const char * {
     auto &vector = *static_cast<std::vector<labhelper::Mesh> *>(vec);
-    if (idx < 0 || idx >= static_cast<int>(vector.size())) {
-      return false;
-    }
-    *text = vector[idx].m_name.c_str();
-    return true;
+    if (idx < 0 || idx >= static_cast<int>(vector.size()))
+      return nullptr;
+    return vector[idx].m_name.c_str();
   };
 
-  static auto material_getter = [](void *vec, int idx, const char **text) {
+  static auto material_getter = [](void *vec, int idx) -> const char * {
     auto &vector = *static_cast<std::vector<labhelper::Material> *>(vec);
-    if (idx < 0 || idx >= static_cast<int>(vector.size())) {
-      return false;
-    }
-    *text = vector[idx].m_name.c_str();
-    return true;
+    if (idx < 0 || idx >= static_cast<int>(vector.size()))
+      return nullptr;
+    return vector[idx].m_name.c_str();
   };
 
   ImGui::SetNextWindowSizeConstraints({0, 0}, {-1, float(windowHeight) - 20});
@@ -441,7 +437,7 @@ void gui() {
   ///////////////////////////////////////////////////////////////////////////
   // Pathtracer settings
   ///////////////////////////////////////////////////////////////////////////
-  if (ImGui::CollapsingHeader("Pathtracer", "pathtracer_ch", true, true)) {
+  if (ImGui::CollapsingHeader("Pathtracer", ImGuiTreeNodeFlags_DefaultOpen)) {
     ImGui::SliderInt("Subsampling", &pathtracer::settings.subsampling, 1, 16);
     ImGui::SliderInt("Max Bounces", &pathtracer::settings.max_bounces, 0, 16);
     ImGui::SliderInt("Max Paths Per Pixel",
@@ -462,7 +458,7 @@ void gui() {
       scenes[currentScene].models[selected_model_index].model;
   scene_t *selected_scene = &scenes[currentScene];
 
-  if (ImGui::CollapsingHeader("Models", "meshes_ch", true, true)) {
+  if (ImGui::CollapsingHeader("Models", ImGuiTreeNodeFlags_DefaultOpen)) {
     if (ImGui::Combo("Model", &selected_model_index, model_getter,
                      (void *)selected_scene,
                      int(selected_scene->models.size()))) {
@@ -476,7 +472,7 @@ void gui() {
     // List all meshes in the model and show properties for the selected
     ///////////////////////////////////////////////////////////////////////////
 
-    if (ImGui::CollapsingHeader("Meshes", "meshes_ch", true, true)) {
+    if (ImGui::CollapsingHeader("Meshes", ImGuiTreeNodeFlags_DefaultOpen)) {
       if (ImGui::ListBox("Meshes", &selected_mesh_index, mesh_getter,
                          (void *)&selected_model->m_meshes,
                          int(selected_model->m_meshes.size()), 5)) {
@@ -491,7 +487,7 @@ void gui() {
     ///////////////////////////////////////////////////////////////////////////
     // List all materials in the model and show properties for the selected
     ///////////////////////////////////////////////////////////////////////////
-    if (ImGui::CollapsingHeader("Material", "materials_ch", true, true)) {
+    if (ImGui::CollapsingHeader("Material", ImGuiTreeNodeFlags_DefaultOpen)) {
       labhelper::Material &material =
           selected_model->m_materials[selected_material_index];
       ImGui::LabelText("Material Name", "%s", material.m_name.c_str());
@@ -499,7 +495,7 @@ void gui() {
       ImGui::SliderFloat("Metalness", &material.m_metalness, 0.0f, 1.0f);
       ImGui::SliderFloat("Fresnel", &material.m_fresnel, 0.0f, 1.0f);
       ImGui::SliderFloat("Shininess", &material.m_shininess, 0.0f, 5000.0f,
-                         "%.3f", 2);
+                         "%.3f", ImGuiSliderFlags_Logarithmic);
       ImGui::ColorEdit3("Emission", &material.m_emission.x);
       ImGui::SliderFloat("Transparency", &material.m_transparency, 0.0f, 1.0f);
       // ImGui::SliderFloat("IoR", &material.m_ior, 0.1f, 3.0f);
@@ -517,7 +513,8 @@ void gui() {
   ///////////////////////////////////////////////////////////////////////////
   // Light and environment map
   ///////////////////////////////////////////////////////////////////////////
-  if (ImGui::CollapsingHeader("Light sources", "lights_ch", true, true)) {
+  if (ImGui::CollapsingHeader("Light sources",
+                              ImGuiTreeNodeFlags_DefaultOpen)) {
     ImGui::Checkbox("Show Light Overlays", &showLightSources);
     ImGui::SliderFloat("Environment multiplier",
                        &pathtracer::environment.multiplier, 0.0f, 10.0f);
@@ -536,7 +533,7 @@ void gui() {
       ImGui::Text("Disc Light %d", i);
       ImGui::ColorEdit3("Color", &l.color.x);
       ImGui::SliderFloat("Intensity", &l.intensity_multiplier, 0.0f, 10000.0f,
-                         "%.3f", 3);
+                         "%.3f", ImGuiSliderFlags_Logarithmic);
       ImGui::DragFloat3("Position", &l.position.x, 0.1);
 
       glm::vec2 dir(atan2(l.direction.z, l.direction.x) / (2 * M_PI) + 0.5,
@@ -572,7 +569,9 @@ int main(int argc, char *argv[]) {
     currentTime = timeSinceStart.count();
 
     // Inform imgui of new frame
-    ImGui_ImplSdlGL3_NewFrame(g_window);
+    ImGui_ImplOpenGL3_NewFrame();
+    ImGui_ImplSDL2_NewFrame();
+    ImGui::NewFrame();
 
     // check events (keyboard among other)
     stopRendering = handleEvents();
@@ -587,6 +586,7 @@ int main(int argc, char *argv[]) {
 
     // Render the GUI.
     ImGui::Render();
+    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
     // Swap front and back buffer. This frame will now be displayed.
     SDL_GL_SwapWindow(g_window);

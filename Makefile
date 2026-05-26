@@ -8,7 +8,8 @@ SDL_CFLAGS := $(shell pkg-config --cflags sdl2 2>/dev/null)
 SDL_LIBS := $(shell pkg-config --libs sdl2 2>/dev/null)
 
 SOURCES = $(shell find src labhelper -name '*.cpp')
-SOURCES += lib/imgui/imgui.cpp lib/imgui/imgui_draw.cpp
+SOURCES += lib/imgui/imgui.cpp lib/imgui/imgui_draw.cpp lib/imgui/imgui_widgets.cpp 
+SOURCES += lib/imgui/imgui_tables.cpp lib/imgui/backends/imgui_impl_sdl2.cpp lib/imgui/backends/imgui_impl_opengl3.cpp
 OBJECTS := $(patsubst %.cpp,%.o,$(SOURCES))
 
 LIBS := $(SDL_LIBS) -lGLEW -lGL -lGLU -lembree4 -lpthread -ldl -lm

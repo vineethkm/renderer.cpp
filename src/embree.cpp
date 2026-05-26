@@ -175,11 +175,23 @@ Intersection getIntersection(const Ray& r)
 	float w = 1.0f - (r.u + r.v);
 	i.shading_normal = normalize(w * n0 + r.u * n1 + r.v * n2);
 
-	// Geometry normal comes from the stored Ng (un-normalized face normal)
-	i.geometry_normal = -normalize(r.n);
+	// Geometry normal comes from Embree's Ng. Keep its orientation and then
+	// ensure both normals face the outgoing direction to avoid black shading.
+	i.geometry_normal = normalize(r.n);
 
 	i.position = r.o + r.tfar * r.d;
 	i.wo       = normalize(-r.d);
+
+	// Make shading/geometry normals consistent with our BRDF convention where
+	// wo should lie in the same hemisphere as the surface normal.
+	if(dot(i.shading_normal, i.wo) < 0.0f)
+	{
+		i.shading_normal = -i.shading_normal;
+	}
+	if(dot(i.geometry_normal, i.wo) < 0.0f)
+	{
+		i.geometry_normal = -i.geometry_normal;
+	}
 
 	// Interpolate texture coordinates
 	vec2 uv0 = model->m_texture_coordinates[((mesh->m_start_index / 3) + r.primID) * 3 + 0];
