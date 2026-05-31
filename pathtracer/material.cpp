@@ -36,10 +36,51 @@ WiSample Diffuse::sample_wi(const vec3& wo, const vec3& n) const
 	return r;
 }
 
-vec3 MicrofacetBRDF::f(const vec3& wi, const vec3& wo, const vec3& n) const
+/*vec3 MicrofacetBRDF::f(const vec3& wi, const vec3& wo, const vec3& n) const
 {
 	return vec3(0.0f);
+}*/
+
+// -----------------------------------------------------------------------------
+// FEATURE: Blinn-Phong Microfacet BRDF
+// Evaluate glossy specular reflection using a physically-based microfacet model.
+
+vec3 MicrofacetBRDF::f(const vec3& wi, const vec3& wo, const vec3& n) const
+{
+	if (dot(wi, n) <= 0.0f || dot(wo, n) <= 0.0f)
+		return vec3(0.0f);
+
+	vec3 wh = normalize(wi + wo);
+
+	float ndotwh = max(dot(n, wh), 0.0f);
+	float ndotwi = max(dot(n, wi), 0.0f);
+	float ndotwo = max(dot(n, wo), 0.0f);
+	float wodotwh = max(dot(wo, wh), EPSILON);
+
+	// Blinn-Phong normal distribution function
+	float D =
+		((shininess + 2.0f) / (2.0f * M_PI))
+		* pow(ndotwh, shininess);
+
+	// Geometry attenuation term
+	float G = min(
+		1.0f,
+		min(
+			(2.0f * ndotwh * ndotwo) / wodotwh,
+			(2.0f * ndotwh * ndotwi) / wodotwh
+		)
+	);
+
+	float denominator = 4.0f * ndotwo * ndotwi;
+
+	if (denominator < EPSILON)
+		return vec3(0.0f);
+
+	float brdf = (D * G) / denominator;
+
+	return vec3(brdf);
 }
+// -----------------------------------------------------------------------------
 
 WiSample MicrofacetBRDF::sample_wi(const vec3& wo, const vec3& n) const
 {
@@ -50,16 +91,47 @@ WiSample MicrofacetBRDF::sample_wi(const vec3& wo, const vec3& n) const
 }
 
 
-float BSDF::fresnel(const vec3& wi, const vec3& wo) const
+/*float BSDF::fresnel(const vec3& wi, const vec3& wo) const
 {
 	return 0.0f;
+}*/
+
+// -----------------------------------------------------------------------------
+// FEATURE: Schlick Fresnel approximation
+// Compute angle-dependent reflectance for physically-based glossy materials.
+
+float BSDF::fresnel(const vec3& wi, const vec3& wo) const
+{
+	vec3 wh = normalize(wi + wo);
+	float cos_theta = max(0.0f, dot(wi, wh));
+	return R0 + (1.0f - R0) * pow(1.0f - cos_theta, 5.0f);
 }
 
+// -----------------------------------------------------------------------------
+
+/*vec3 DielectricBSDF::f(const vec3& wi, const vec3& wo, const vec3& n) const
+{
+	return vec3(0);
+}*/
+
+// -----------------------------------------------------------------------------
+// FEATURE: Dielectric BSDF Material Blending
+// Combine diffuse and reflective components using Fresnel-based weighting.
 
 vec3 DielectricBSDF::f(const vec3& wi, const vec3& wo, const vec3& n) const
 {
-	return vec3(0);
+	float F = fresnel(wi, wo);
+
+	vec3 reflection =
+		F * reflective_material->f(wi, wo, n);
+
+	vec3 transmission =
+		(1.0f - F) * transmissive_material->f(wi, wo, n);
+
+	return reflection + transmission;
 }
+
+// -----------------------------------------------------------------------------
 
 WiSample DielectricBSDF::sample_wi(const vec3& wo, const vec3& n) const
 {
@@ -71,10 +143,21 @@ WiSample DielectricBSDF::sample_wi(const vec3& wo, const vec3& n) const
 	return r;
 }
 
-vec3 MetalBSDF::f(const vec3& wi, const vec3& wo, const vec3& n) const
+/*vec3 MetalBSDF::f(const vec3& wi, const vec3& wo, const vec3& n) const
 {
 	return vec3(0);
+}*/
+
+// -----------------------------------------------------------------------------
+// FEATURE: Metallic Reflection Model
+// Simulate colored specular reflections for metallic materials.
+
+vec3 MetalBSDF::f(const vec3& wi, const vec3& wo, const vec3& n) const
+{
+	float F = fresnel(wi, wo);
+	return color * F * reflective_material->f(wi, wo, n);
 }
+// -----------------------------------------------------------------------------
 
 WiSample MetalBSDF::sample_wi(const vec3& wo, const vec3& n) const
 {
@@ -85,14 +168,38 @@ WiSample MetalBSDF::sample_wi(const vec3& wo, const vec3& n) const
 }
 
 
-vec3 BSDFLinearBlend::f(const vec3& wi, const vec3& wo, const vec3& n) const
+/*vec3 BSDFLinearBlend::f(const vec3& wi, const vec3& wo, const vec3& n) const
 {
 	return vec3(0.0);
+}*/
+
+// -----------------------------------------------------------------------------
+// FEATURE: Layered Material Blending
+// Blend multiple BSDF material responses into a combined surface model.
+
+vec3 BSDFLinearBlend::f(const vec3& wi, const vec3& wo, const vec3& n) const
+{
+	return
+		w * bsdf0->f(wi, wo, n)
+		+ (1.0f - w) * bsdf1->f(wi, wo, n);
 }
+// -----------------------------------------------------------------------------
+
+/*WiSample BSDFLinearBlend::sample_wi(const vec3& wo, const vec3& n) const
+{
+	return WiSample{};
+}*/
 
 WiSample BSDFLinearBlend::sample_wi(const vec3& wo, const vec3& n) const
 {
-	return WiSample{};
+	if (randf() < w)
+	{
+		return bsdf0->sample_wi(wo, n);
+	}
+	else
+	{
+		return bsdf1->sample_wi(wo, n);
+	}
 }
 
 

@@ -90,9 +90,32 @@ vec3 Li(Ray& primary_ray, int depth)
 	// Create a Material tree for evaluating brdfs and calculating
 	// sample directions.
 	///////////////////////////////////////////////////////////////////
+	// FEATURE: Physically-Based Material Stack
+	// Construct layered BSDF materials for glossy dielectric and metallic shading.
 
 	Diffuse diffuse(hit.material->m_color);
-	BTDF& mat = diffuse;
+	//BTDF& mat = diffuse;
+	MicrofacetBRDF microfacet(hit.material->m_shininess);
+	DielectricBSDF dielectric(
+		&microfacet,
+		&diffuse,
+		hit.material->m_fresnel
+	);
+	MetalBSDF metal(
+		&microfacet,
+		hit.material->m_color,
+		hit.material->m_fresnel
+	);
+	// Blend between dielectric and metal
+	BSDFLinearBlend blended_material(
+		0.5f,
+		&dielectric,
+		&metal
+	);
+
+	BSDF& mat = blended_material;
+	//BSDF& mat = dielectric;
+
 	///////////////////////////////////////////////////////////////////
 	// Calculate Direct Illumination from light.
 	///////////////////////////////////////////////////////////////////
