@@ -82,14 +82,60 @@ vec3 MicrofacetBRDF::f(const vec3& wi, const vec3& wo, const vec3& n) const
 }
 // -----------------------------------------------------------------------------
 
-WiSample MicrofacetBRDF::sample_wi(const vec3& wo, const vec3& n) const
+/*WiSample MicrofacetBRDF::sample_wi(const vec3& wo, const vec3& n) const
 {
 	WiSample r = sampleHemisphereCosine(wo, n);
 	r.f = f(r.wi, wo, n);
 
 	return r;
+}*/
+
+// -----------------------------------------------------------------------------
+// FEATURE: Microfacet Importance Sampling
+// Sample glossy reflection directions using a Blinn-Phong microfacet distribution to reduce Monte Carlo variance.
+
+WiSample MicrofacetBRDF::sample_wi(const vec3& wo, const vec3& n) const
+{
+	WiSample r;
+	// Sample Blinn-Phong half vector
+	float phi = 2.0f * M_PI * randf();
+	float cosTheta =
+		pow(randf(), 1.0f / (shininess + 1.0f));
+	float sinTheta =
+		sqrt(max(0.0f, 1.0f - cosTheta * cosTheta));
+
+	vec3 wh_local = vec3(
+		sinTheta * cos(phi),
+		sinTheta * sin(phi),
+		cosTheta
+	);
+
+	// Transform to world space
+	mat3 tbn = tangentSpace(n);
+	vec3 wh = normalize(tbn * wh_local);
+	// Reflect outgoing direction around half vector
+	r.wi = reflect(-wo, wh);
+	// Reject invalid hemisphere samples
+	if (dot(r.wi, n) <= 0.0f)
+	{
+		r.pdf = 0.0f;
+		r.f = vec3(0.0f);
+		return r;
+	}
+	float ndotwh = max(dot(n, wh), 0.0f);
+	float wodotwh = max(dot(wo, wh), EPSILON);
+
+	// Blinn-Phong PDF
+	r.pdf =
+		((shininess + 1.0f) * pow(ndotwh, shininess))
+		/ (2.0f * M_PI * 4.0f * wodotwh);
+
+	r.f = f(r.wi, wo, n);
+
+	return r;
 }
 
+// -----------------------------------------------------------------------------
 
 /*float BSDF::fresnel(const vec3& wi, const vec3& wo) const
 {
@@ -190,7 +236,7 @@ vec3 BSDFLinearBlend::f(const vec3& wi, const vec3& wo, const vec3& n) const
 	return WiSample{};
 }*/
 
-WiSample BSDFLinearBlend::sample_wi(const vec3& wo, const vec3& n) const
+/*WiSample BSDFLinearBlend::sample_wi(const vec3& wo, const vec3& n) const
 {
 	if (randf() < w)
 	{
@@ -200,6 +246,27 @@ WiSample BSDFLinearBlend::sample_wi(const vec3& wo, const vec3& n) const
 	{
 		return bsdf1->sample_wi(wo, n);
 	}
+}*/
+
+// FEATURE: BSDF Importance Sampling Blend
+// Randomly sample blended material components using weighted probabilistic selection.
+
+WiSample BSDFLinearBlend::sample_wi(const vec3& wo, const vec3& n) const
+{
+	WiSample r;
+	if (randf() < w)
+	{
+		r = bsdf0->sample_wi(wo, n);
+		r.pdf *= w;
+	}
+	else
+	{
+		r = bsdf1->sample_wi(wo, n);
+		r.pdf *= (1.0f - w);
+	}
+
+	r.f = f(r.wi, wo, n);
+	return r;
 }
 
 
