@@ -30,3 +30,4 @@ compile_commands.json
 # objects & executable
 renderer
 build/
+imgui.ini
