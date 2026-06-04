@@ -190,18 +190,18 @@ void initialize() {
   // vec3 direction;
   // float radius;
 
-  // pathtracer::disc_lights.push_back(
-  //     pathtracer::DiscLight{1000,
-  //                           {1, 0.8, 0},
-  //                           {-8, 10, 8},
-  //                           glm::normalize(glm::vec3(10, -2, 10)),
-  //                           8.0});
-  // pathtracer::disc_lights.push_back(
-  //     pathtracer::DiscLight{1000,
-  //                           {0.1, 0.3, 1},
-  //                           {-10, 20, -5},
-  //                           glm::normalize(-glm::vec3(-10, 20, -5)),
-  //                           10.0});
+  pathtracer::disc_lights.push_back(
+      pathtracer::DiscLight{1000,
+                            {1, 0.8, 0},
+                            {-8, 10, 8},
+                            glm::normalize(glm::vec3(10, -2, 10)),
+                            8.0});
+  pathtracer::disc_lights.push_back(
+      pathtracer::DiscLight{1000,
+                            {0.1, 0.3, 1},
+                            {-10, 20, -5},
+                            glm::normalize(-glm::vec3(-10, 20, -5)),
+                            10.0});
 
   ///////////////////////////////////////////////////////////////////////////
   // Load environment map

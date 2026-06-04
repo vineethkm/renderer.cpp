@@ -7,6 +7,7 @@
 #include "embree.h"
 #include "sampling.h"
 #include "labhelper.h"
+#include <chrono>
 
 using namespace std;
 using namespace glm;
@@ -78,6 +79,20 @@ vec3 Li(Ray& primary_ray, int depth)
 	{
 		return vec3(0.0f);
 	}
+	///////////////////////////////////////////////////////////////////////////
+	// FEATURE: Russian Roulette Path Termination
+	// Probabilistically terminate low-contribution paths after several bounces.
+	///////////////////////////////////////////////////////////////////////////
+
+	if (depth < settings.max_bounces - 2)
+	{
+		const float survivalProbability = 0.8f;
+
+		if (randf() > survivalProbability)
+		{
+			return vec3(0.0f);
+		}
+	}
 	// -----------------------------------------------------------------------------
 	vec3 path_throughput = vec3(1.0);
 	Ray current_ray = primary_ray;
@@ -108,7 +123,8 @@ vec3 Li(Ray& primary_ray, int depth)
 	);
 	// Blend between dielectric and metal
 	BSDFLinearBlend blended_material(
-		0.5f,
+		//0.5f,
+		hit.material->m_metalness,
 		&dielectric,
 		&metal
 	);
@@ -149,11 +165,85 @@ vec3 Li(Ray& primary_ray, int depth)
 			vec3 Li = point_light.intensity_multiplier
 				* point_light.color
 				* falloff_factor;
-			L = mat.f(wi, hit.wo, hit.shading_normal)
+			L += mat.f(wi, hit.wo, hit.shading_normal)
 				* Li
 				* std::max(0.0f, dot(wi, hit.shading_normal));
 		}
+		///////////////////////////////////////////////////////////////////////////
+		// FEATURE: Disc Area Lights / Soft Shadows
+		///////////////////////////////////////////////////////////////////////////
+
+		for (const auto& light : disc_lights)
+		{
+			const int lightSamples = 8;
+
+			for (int s = 0; s < lightSamples; s++)
+			{
+				// Build tangent basis for disc
+				vec3 up =
+					abs(light.direction.y) < 0.99f ?
+					vec3(0, 1, 0) :
+					vec3(1, 0, 0);
+
+				vec3 tangent =
+					normalize(cross(up, light.direction));
+
+				vec3 bitangent =
+					normalize(cross(light.direction, tangent));
+
+				// Uniform random point on disc
+				float r = sqrt(randf()) * light.radius;
+				float theta = 2.0f * M_PI * randf();
+
+				vec3 samplePoint =
+					light.position
+					+ tangent * (r * cos(theta))
+					+ bitangent * (r * sin(theta));
+
+				vec3 wiDisc =
+					normalize(samplePoint - hit.position);
+
+				float distanceToLight =
+					length(samplePoint - hit.position);
+
+				Ray shadowRay;
+
+				shadowRay.o =
+					hit.position + hit.geometry_normal * EPSILON;
+
+				shadowRay.d = wiDisc;
+
+				shadowRay.tnear = EPSILON;
+				shadowRay.tfar = distanceToLight - EPSILON;
+
+				if (!occluded(shadowRay))
+				{
+					float falloff =
+						1.0f / (distanceToLight * distanceToLight);
+
+					vec3 LiDisc =
+						light.intensity_multiplier
+						* light.color
+						* falloff;
+
+					L +=
+						(1.0f / float(lightSamples))
+						* mat.f(
+							wiDisc,
+							hit.wo,
+							hit.shading_normal)
+						* LiDisc
+						* std::max(
+							0.0f,
+							dot(
+								wiDisc,
+								hit.shading_normal));
+				}
+			}
+		}
 	}
+
+
 	// -----------------------------------------------------------------------------
 	// -----------------------------------------------------------------------------
 	// FEATURE: Recursive Reflection Rays
@@ -196,6 +286,7 @@ vec3 Li(Ray& primary_ray, int depth)
 	{
 		L += reflectivity * Lenvironment(reflectionRay.d);
 	}
+
 	// -----------------------------------------------------------------------------
 	// -----------------------------------------------------------------------------
 	// FEATURE: Indirect Diffuse Bounce
@@ -239,10 +330,73 @@ inline static glm::vec3 homogenize(const glm::vec4& p)
 }
 
 ///////////////////////////////////////////////////////////////////////////
+// FEATURE: Bilateral Denoising Filter
+// Edge-preserving image-space filter for reducing Monte Carlo noise.
+///////////////////////////////////////////////////////////////////////////
+/*void applyBilateralFilter()
+{
+	std::vector<glm::vec3> filtered = rendered_image.data;
+
+	const float sigmaSpatial = 1.0f;
+	const float sigmaColor = 0.15f;
+
+	for (int y = 1; y < rendered_image.height - 1; y++)
+	{
+		for (int x = 1; x < rendered_image.width - 1; x++)
+		{
+			glm::vec3 center =
+				rendered_image.data[y * rendered_image.width + x];
+
+			glm::vec3 sum(0.0f);
+			float weightSum = 0.0f;
+
+			for (int ky = -1; ky <= 1; ky++)
+			{
+				for (int kx = -1; kx <= 1; kx++)
+				{
+					int nx = x + kx;
+					int ny = y + ky;
+
+					glm::vec3 neighbor =
+						rendered_image.data[
+							ny * rendered_image.width + nx];
+
+					float spatialDist =
+						float(kx * kx + ky * ky);
+
+					float colorDist =
+						glm::length(neighbor - center);
+
+					float spatialWeight =
+						exp(-spatialDist /
+							(2.0f * sigmaSpatial * sigmaSpatial));
+
+					float colorWeight =
+						exp(-(colorDist * colorDist) /
+							(2.0f * sigmaColor * sigmaColor));
+
+					float weight =
+						spatialWeight * colorWeight;
+
+					sum += neighbor * weight;
+					weightSum += weight;
+				}
+			}
+
+			filtered[y * rendered_image.width + x] =
+				sum / std::max(weightSum, 0.0001f);
+		}
+	}
+
+	rendered_image.data = filtered;
+}*/
+
+///////////////////////////////////////////////////////////////////////////
 /// Trace one path per pixel and accumulate the result in an image
 ///////////////////////////////////////////////////////////////////////////
 void tracePaths(const glm::mat4& V, const glm::mat4& P)
 {
+	auto start = std::chrono::high_resolution_clock::now();
 	// Stop here if we have as many samples as we want
 	if((int(rendered_image.number_of_samples) > settings.max_paths_per_pixel)
 	   && (settings.max_paths_per_pixel != 0))
@@ -321,5 +475,18 @@ void tracePaths(const glm::mat4& V, const glm::mat4& P)
 		}
 	}
 	rendered_image.number_of_samples += 1;
+
+	// FEATURE: Bilateral Denoising
+	//applyBilateralFilter
+
+	auto end = std::chrono::high_resolution_clock::now();
+
+	double ms =
+		std::chrono::duration<double, std::milli>(
+			end - start).count();
+
+	std::cout << "tracePaths: "
+		<< ms
+		<< " ms\n";
 }
 }; // namespace pathtracer
