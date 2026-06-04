@@ -7,6 +7,7 @@
 #include "embree.h"
 #include "sampling.h"
 #include "labhelper.h"
+#include <chrono>
 
 using namespace std;
 using namespace glm;
@@ -77,6 +78,20 @@ vec3 Li(Ray& primary_ray, int depth)
 	if (depth <= 0)
 	{
 		return vec3(0.0f);
+	}
+	///////////////////////////////////////////////////////////////////////////
+	// FEATURE: Russian Roulette Path Termination
+	// Probabilistically terminate low-contribution paths after several bounces.
+	///////////////////////////////////////////////////////////////////////////
+
+	if (depth < settings.max_bounces - 2)
+	{
+		const float survivalProbability = 0.8f;
+
+		if (randf() > survivalProbability)
+		{
+			return vec3(0.0f);
+		}
 	}
 	// -----------------------------------------------------------------------------
 	vec3 path_throughput = vec3(1.0);
@@ -381,6 +396,7 @@ inline static glm::vec3 homogenize(const glm::vec4& p)
 ///////////////////////////////////////////////////////////////////////////
 void tracePaths(const glm::mat4& V, const glm::mat4& P)
 {
+	auto start = std::chrono::high_resolution_clock::now();
 	// Stop here if we have as many samples as we want
 	if((int(rendered_image.number_of_samples) > settings.max_paths_per_pixel)
 	   && (settings.max_paths_per_pixel != 0))
@@ -461,6 +477,16 @@ void tracePaths(const glm::mat4& V, const glm::mat4& P)
 	rendered_image.number_of_samples += 1;
 
 	// FEATURE: Bilateral Denoising
-	//applyBilateralFilter();
+	//applyBilateralFilter
+
+	auto end = std::chrono::high_resolution_clock::now();
+
+	double ms =
+		std::chrono::duration<double, std::milli>(
+			end - start).count();
+
+	std::cout << "tracePaths: "
+		<< ms
+		<< " ms\n";
 }
 }; // namespace pathtracer
