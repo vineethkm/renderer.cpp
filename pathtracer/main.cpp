@@ -176,14 +176,14 @@ void initialize()
 	// Initial path-tracer settings
 	///////////////////////////////////////////////////////////////////////////
 	pathtracer::settings.max_bounces = 2;
-	pathtracer::settings.max_paths_per_pixel = 8; // 0 = Infinite
+	pathtracer::settings.max_paths_per_pixel = 4; // 0 = Infinite
 
-	pathtracer::settings.spp = 8;
+	pathtracer::settings.spp = 4;
 	pathtracer::settings.reflection_strength = 0.25f;
 #ifdef _DEBUG
 	pathtracer::settings.subsampling = 1;
 #else
-	pathtracer::settings.subsampling = 1;
+	pathtracer::settings.subsampling = 2;
 #endif
 
 	///////////////////////////////////////////////////////////////////////////
@@ -193,25 +193,25 @@ void initialize()
 	pathtracer::point_light.color = vec3(1.f, 1.f, 1.f);
 	pathtracer::point_light.position = vec3(10.0f, 25.0f, 20.0f);
 
-	// float intensity_multiplier;
-	// vec3 color;
-	// vec3 position;
-	// vec3 direction;
-	// float radius;
-	/*
+	float intensity_multiplier;
+	vec3 color;
+	vec3 position;
+	vec3 direction;
+	float radius;
+	
 	pathtracer::disc_lights.push_back( pathtracer::DiscLight{
 									   1000,
 									   {1, 0.8, 0},
 									   {-8, 10, 8},
 									   glm::normalize(glm::vec3(10, -2, 10)),
 									   8.0 } );
-	pathtracer::disc_lights.push_back( pathtracer::DiscLight{
+	pathtracer::disc_lights.push_back(pathtracer::DiscLight{
 									   1000,
 									   {0.1, 0.3, 1},
 									   {-10, 20, -5},
 									   glm::normalize(-glm::vec3(-10, 20, -5)),
 									   10.0 } );
-	*/
+	
 
 	///////////////////////////////////////////////////////////////////////////
 	// Load environment map
@@ -248,7 +248,7 @@ void display(void)
 		{
 			pathtracer::resize(w, h);
 			windowWidth = w;
-			windowWidth = h;
+			windowHeight = h;
 			old_subsampling = pathtracer::settings.subsampling;
 		}
 	}
