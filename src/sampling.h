@@ -1,8 +1,7 @@
 #pragma once
 #include <glm/glm.hpp>
 
-namespace pathtracer
-{
+namespace pathtracer {
 ///////////////////////////////////////////////////////////////////////////
 // Random number generation
 ///////////////////////////////////////////////////////////////////////////
@@ -21,5 +20,6 @@ glm::vec3 cosineSampleHemisphere();
 ///////////////////////////////////////////////////////////////////////////
 // Check if wi and wo are on the same side of the plane defined by n
 ///////////////////////////////////////////////////////////////////////////
-bool sameHemisphere(const glm::vec3& wi, const glm::vec3& wo, const glm::vec3& n);
+bool sameHemisphere(const glm::vec3 &wi, const glm::vec3 &wo,
+                    const glm::vec3 &n);
 } // namespace pathtracer

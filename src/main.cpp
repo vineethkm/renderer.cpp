@@ -170,7 +170,7 @@ void initialize() {
   pathtracer::settings.max_paths_per_pixel = 0; // 0 = Infinite
 
   pathtracer::settings.spp = 4;
-  pathtracer::settings.reflection_strength = 0.3f;
+  pathtracer::settings.reflection_strength = 0.0f;
 #ifdef _DEBUG
   pathtracer::settings.subsampling = 16;
 #else
@@ -443,8 +443,9 @@ void gui() {
     ImGui::SliderInt("Max Paths Per Pixel",
                      &pathtracer::settings.max_paths_per_pixel, 0, 1024);
     ImGui::SliderInt("Samples Per Pixel", &pathtracer::settings.spp, 1, 32);
-    ImGui::SliderFloat("Reflection Strength",
-                       &pathtracer::settings.reflection_strength, 0.0f, 1.0f);
+    // ImGui::SliderFloat("Reflection Strength",
+    //                    &pathtracer::settings.reflection_strength,
+    //                    0.0f, 1.0f);
     if (ImGui::Button("Restart Pathtracing")) {
       pathtracer::restart();
     }
@@ -498,7 +499,7 @@ void gui() {
                          "%.3f", ImGuiSliderFlags_Logarithmic);
       ImGui::ColorEdit3("Emission", &material.m_emission.x);
       ImGui::SliderFloat("Transparency", &material.m_transparency, 0.0f, 1.0f);
-      // ImGui::SliderFloat("IoR", &material.m_ior, 0.1f, 3.0f);
+      ImGui::SliderFloat("IoR", &material.m_ior, 1.0f, 3.0f);
     }
 
 #if ALLOW_SAVE_MATERIALS

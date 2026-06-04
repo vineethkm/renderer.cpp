@@ -1,20 +1,37 @@
 #include "Pathtracer.h"
-#include <memory>
+#include "embree.h"
+#ifdef CPUBVH
+#include "CpuBVH.hpp"
+#endif
+#include "labhelper.h"
+#include "material.h"
+#include "sampling.h"
+#include <algorithm>
+#include <chrono>
 #include <iostream>
 #include <map>
-#include <algorithm>
-#include "material.h"
-#include "embree.h"
-#include "sampling.h"
-#include "labhelper.h"
-#include <chrono>
+#include <memory>
 
 using namespace std;
 using namespace glm;
 using namespace labhelper;
 
-namespace pathtracer
-{
+#ifdef CPUBVH
+// When built with CPUBVH, provide pathtracer-namespace implementations that
+// forward to the CPU BVH backend so the rest of the code is unchanged.
+namespace pathtracer {
+void addModel(const labhelper::Model *model, const glm::mat4 &model_matrix) {
+    cpu::addModel(model, model_matrix);
+}
+void buildBVH() { cpu::buildBVH(); }
+void reinitScene() { cpu::reinitScene(); }
+bool intersect(Ray &r) { return cpu::intersect(r); }
+bool occluded(Ray &r) { return cpu::occluded(r); }
+Intersection getIntersection(const Ray &r) { return cpu::getIntersection(r); }
+} // namespace pathtracer
+#endif
+
+namespace pathtracer {
 ///////////////////////////////////////////////////////////////////////////////
 // Global variables
 ///////////////////////////////////////////////////////////////////////////////
@@ -27,466 +44,386 @@ std::vector<DiscLight> disc_lights;
 ///////////////////////////////////////////////////////////////////////////
 // Restart rendering of image
 ///////////////////////////////////////////////////////////////////////////
-void restart()
-{
-	// No need to clear image,
-	rendered_image.number_of_samples = 0;
+void restart() {
+  // No need to clear image,
+  rendered_image.number_of_samples = 0;
 }
 
-int getSampleCount()
-{
-	return std::max(rendered_image.number_of_samples - 1, 0);
+int getSampleCount() {
+  return std::max(rendered_image.number_of_samples - 1, 0);
 }
 
 ///////////////////////////////////////////////////////////////////////////
 // On window resize, window size is passed in, actual size of pathtraced
 // image may be smaller (if we're subsampling for speed)
 ///////////////////////////////////////////////////////////////////////////
-void resize(int w, int h)
-{
-	rendered_image.width = w / settings.subsampling;
-	rendered_image.height = h / settings.subsampling;
-	rendered_image.data.resize(rendered_image.width * rendered_image.height);
-	restart();
+void resize(int w, int h) {
+  rendered_image.width = w / settings.subsampling;
+  rendered_image.height = h / settings.subsampling;
+  rendered_image.data.resize(rendered_image.width * rendered_image.height);
+  restart();
 }
 
 ///////////////////////////////////////////////////////////////////////////
 /// Return the radiance from a certain direction wi from the environment
 /// map.
 ///////////////////////////////////////////////////////////////////////////
-vec3 Lenvironment(const vec3& wi)
-{
-	const float theta = acos(std::max(-1.0f, std::min(1.0f, wi.y)));
-	float phi = atan(wi.z, wi.x);
-	if(phi < 0.0f)
-		phi = phi + 2.0f * M_PI;
-	vec2 lookup = vec2(phi / (2.0 * M_PI), 1 - theta / M_PI);
-	return environment.multiplier * environment.map.sample(lookup.x, lookup.y);
+vec3 Lenvironment(const vec3 &wi) {
+  const float theta = acos(std::max(-1.0f, std::min(1.0f, wi.y)));
+  float phi = atan(wi.z, wi.x);
+  if (phi < 0.0f)
+    phi = phi + 2.0f * M_PI;
+  vec2 lookup = vec2(phi / (2.0 * M_PI), 1 - theta / M_PI);
+  return environment.multiplier * environment.map.sample(lookup.x, lookup.y);
 }
 
 ///////////////////////////////////////////////////////////////////////////
 /// Calculate the radiance going from one point (r.hitPosition()) in one
 /// direction (-r.d), through path tracing.
 ///////////////////////////////////////////////////////////////////////////
-//vec3 Li(Ray& primary_ray)
-vec3 Li(Ray& primary_ray, int depth)
-{
-	vec3 L = vec3(0.0f);
-	// -----------------------------------------------------------------------------
-	// FEATURE: Recursive Bounce Depth Control
-	// Stop recursive ray tracing once maximum bounce depth is reached.
-	if (depth <= 0)
-	{
-		return vec3(0.0f);
-	}
-	///////////////////////////////////////////////////////////////////////////
-	// FEATURE: Russian Roulette Path Termination
-	// Probabilistically terminate low-contribution paths after several bounces.
-	///////////////////////////////////////////////////////////////////////////
+// vec3 Li(Ray& primary_ray)
+vec3 Li(Ray &primary_ray, int depth) {
+  vec3 L = vec3(0.0f);
+  // -----------------------------------------------------------------------------
+  // FEATURE: Recursive Bounce Depth Control
+  // Stop recursive ray tracing once maximum bounce depth is reached.
+  if (depth <= 0) {
+    return vec3(0.0f);
+  }
+  ///////////////////////////////////////////////////////////////////////////
+  // FEATURE: Russian Roulette Path Termination
+  // Probabilistically terminate low-contribution paths after several bounces.
+  ///////////////////////////////////////////////////////////////////////////
 
-	if (depth < settings.max_bounces - 2)
-	{
-		const float survivalProbability = 0.8f;
+  float rr_weight = 1.0f;
+  if (depth < settings.max_bounces - 2) {
+    const float survivalProbability = 0.8f;
 
-		if (randf() > survivalProbability)
-		{
-			return vec3(0.0f);
-		}
-	}
-	// -----------------------------------------------------------------------------
-	vec3 path_throughput = vec3(1.0);
-	Ray current_ray = primary_ray;
+    if (randf() > survivalProbability) {
+      return vec3(0.0f);
+    }
+    rr_weight = 1.0f / survivalProbability;
+  }
+  // -----------------------------------------------------------------------------
+  vec3 path_throughput = vec3(1.0);
+  Ray current_ray = primary_ray;
 
-	///////////////////////////////////////////////////////////////////
-	// Get the intersection information from the ray
-	///////////////////////////////////////////////////////////////////
-	Intersection hit = getIntersection(current_ray);
-	///////////////////////////////////////////////////////////////////
-	// Create a Material tree for evaluating brdfs and calculating
-	// sample directions.
-	///////////////////////////////////////////////////////////////////
-	// FEATURE: Physically-Based Material Stack
-	// Construct layered BSDF materials for glossy dielectric and metallic shading.
+  ///////////////////////////////////////////////////////////////////
+  // Get the intersection information from the ray
+  ///////////////////////////////////////////////////////////////////
+  Intersection hit = getIntersection(current_ray);
+  ///////////////////////////////////////////////////////////////////
+  // Create a Material tree for evaluating brdfs and calculating
+  // sample directions.
+  ///////////////////////////////////////////////////////////////////
+  // FEATURE: Physically-Based Material Stack
+  // Construct layered BSDF materials for glossy dielectric and metallic
+  // shading.
 
-	Diffuse diffuse(hit.material->m_color);
-	//BTDF& mat = diffuse;
-	MicrofacetBRDF microfacet(hit.material->m_shininess);
-	DielectricBSDF dielectric(
-		&microfacet,
-		&diffuse,
-		hit.material->m_fresnel
-	);
-	MetalBSDF metal(
-		&microfacet,
-		hit.material->m_color,
-		hit.material->m_fresnel
-	);
-	// Blend between dielectric and metal
-	BSDFLinearBlend blended_material(
-		//0.5f,
-		hit.material->m_metalness,
-		&dielectric,
-		&metal
-	);
+  Diffuse diffuse(hit.material->m_color);
+  GlassBTDF glass(hit.material->m_ior, hit.entering);
+  BTDFLinearBlend btdf_blend(hit.material->m_transparency, &glass, &diffuse);
+  MicrofacetBRDF microfacet(hit.material->m_shininess);
+  DielectricBSDF dielectric(&microfacet, &btdf_blend, hit.material->m_fresnel);
+  MetalBSDF metal(&microfacet, hit.material->m_color, hit.material->m_fresnel);
+  // Blend between dielectric (bsdf0) and metal (bsdf1) weighted by metalness.
+  // w=metalness: f = metalness*metal + (1-metalness)*dielectric
+  BSDFLinearBlend blended_material(hit.material->m_metalness, &metal, &dielectric);
 
-	BSDF& mat = blended_material;
-	//BSDF& mat = dielectric;
+  BSDF &mat = blended_material;
+  // BSDF& mat = dielectric;
 
-	///////////////////////////////////////////////////////////////////
-	// Calculate Direct Illumination from light.
-	///////////////////////////////////////////////////////////////////
-	/*{
-	const float distance_to_light = length(point_light.position - hit.position);
-	const float falloff_factor = 1.0f / (distance_to_light * distance_to_light);
-	vec3 Li = point_light.intensity_multiplier * point_light.color * falloff_factor;
-	vec3 wi = normalize(point_light.position - hit.position);
-	L = mat.f(wi, hit.wo, hit.shading_normal) * Li * std::max(0.0f, dot(wi, hit.shading_normal));
-	}*/
-	// -----------------------------------------------------------------------------
-	// FEATURE: Shadow Ray Visibility Testing
-	// Shoot a shadow ray toward the light source to test visibility and generate hard shadows.
-	{
-		const float distance_to_light = length(point_light.position - hit.position);
-		vec3 wi = normalize(point_light.position - hit.position);
-		// Create shadow ray
-		Ray shadowRay;
-		// Offset ray origin slightly along geometry normal to avoid self-intersections
-		shadowRay.o = hit.position + hit.geometry_normal * EPSILON;
-		// Direction toward light
-		shadowRay.d = wi;
-		// Limit shadow ray to stop at the light source
-		shadowRay.tnear = EPSILON;
-		shadowRay.tfar = distance_to_light - EPSILON;
+  ///////////////////////////////////////////////////////////////////
+  // Calculate Direct Illumination from light.
+  ///////////////////////////////////////////////////////////////////
+  /*{
+  const float distance_to_light = length(point_light.position - hit.position);
+  const float falloff_factor = 1.0f / (distance_to_light * distance_to_light);
+  vec3 Li = point_light.intensity_multiplier * point_light.color *
+  falloff_factor; vec3 wi = normalize(point_light.position - hit.position); L =
+  mat.f(wi, hit.wo, hit.shading_normal) * Li * std::max(0.0f, dot(wi,
+  hit.shading_normal));
+  }*/
+  // -----------------------------------------------------------------------------
+  // FEATURE: Shadow Ray Visibility Testing
+  // Shoot a shadow ray toward the light source to test visibility and generate
+  // hard shadows.
+  {
+    const float distance_to_light = length(point_light.position - hit.position);
+    vec3 wi = normalize(point_light.position - hit.position);
+    // Create shadow ray
+    Ray shadowRay;
+    // Offset ray origin slightly along geometry normal to avoid
+    // self-intersections
+    shadowRay.o = hit.position + hit.geometry_normal * EPSILON;
+    // Direction toward light
+    shadowRay.d = wi;
+    // Limit shadow ray to stop at the light source
+    shadowRay.tnear = EPSILON;
+    shadowRay.tfar = distance_to_light - EPSILON;
 
-		// If the light is visible, compute direct illumination
-		if (!occluded(shadowRay))
-		{
-			const float falloff_factor = 1.0f / (distance_to_light * distance_to_light);
-			vec3 Li = point_light.intensity_multiplier
-				* point_light.color
-				* falloff_factor;
-			L += mat.f(wi, hit.wo, hit.shading_normal)
-				* Li
-				* std::max(0.0f, dot(wi, hit.shading_normal));
-		}
-		///////////////////////////////////////////////////////////////////////////
-		// FEATURE: Disc Area Lights / Soft Shadows
-		///////////////////////////////////////////////////////////////////////////
+    // If the light is visible, compute direct illumination
+    if (!occluded(shadowRay)) {
+      const float falloff_factor =
+          1.0f / (distance_to_light * distance_to_light);
+      vec3 Li =
+          point_light.intensity_multiplier * point_light.color * falloff_factor;
+      L += mat.f(wi, hit.wo, hit.shading_normal) * Li *
+           std::max(0.0f, dot(wi, hit.shading_normal));
+    }
+    ///////////////////////////////////////////////////////////////////////////
+    // FEATURE: Disc Area Lights / Soft Shadows
+    ///////////////////////////////////////////////////////////////////////////
 
-		for (const auto& light : disc_lights)
-		{
-			const int lightSamples = 8;
+    for (const auto &light : disc_lights) {
+      const int lightSamples = 8;
 
-			for (int s = 0; s < lightSamples; s++)
-			{
-				// Build tangent basis for disc
-				vec3 up =
-					abs(light.direction.y) < 0.99f ?
-					vec3(0, 1, 0) :
-					vec3(1, 0, 0);
+      for (int s = 0; s < lightSamples; s++) {
+        // Build tangent basis for disc
+        vec3 up =
+            abs(light.direction.y) < 0.99f ? vec3(0, 1, 0) : vec3(1, 0, 0);
 
-				vec3 tangent =
-					normalize(cross(up, light.direction));
+        vec3 tangent = normalize(cross(up, light.direction));
 
-				vec3 bitangent =
-					normalize(cross(light.direction, tangent));
+        vec3 bitangent = normalize(cross(light.direction, tangent));
 
-				// Uniform random point on disc
-				float r = sqrt(randf()) * light.radius;
-				float theta = 2.0f * M_PI * randf();
+        // Uniform random point on disc
+        float r = sqrt(randf()) * light.radius;
+        float theta = 2.0f * M_PI * randf();
 
-				vec3 samplePoint =
-					light.position
-					+ tangent * (r * cos(theta))
-					+ bitangent * (r * sin(theta));
+        vec3 samplePoint = light.position + tangent * (r * cos(theta)) +
+                           bitangent * (r * sin(theta));
 
-				vec3 wiDisc =
-					normalize(samplePoint - hit.position);
+        vec3 wiDisc = normalize(samplePoint - hit.position);
 
-				float distanceToLight =
-					length(samplePoint - hit.position);
+        float distanceToLight = length(samplePoint - hit.position);
 
-				Ray shadowRay;
+        Ray shadowRay;
 
-				shadowRay.o =
-					hit.position + hit.geometry_normal * EPSILON;
+        shadowRay.o = hit.position + hit.geometry_normal * EPSILON;
 
-				shadowRay.d = wiDisc;
+        shadowRay.d = wiDisc;
 
-				shadowRay.tnear = EPSILON;
-				shadowRay.tfar = distanceToLight - EPSILON;
+        shadowRay.tnear = EPSILON;
+        shadowRay.tfar = distanceToLight - EPSILON;
 
-				if (!occluded(shadowRay))
-				{
-					float falloff =
-						1.0f / (distanceToLight * distanceToLight);
+        if (!occluded(shadowRay)) {
+          float falloff = 1.0f / (distanceToLight * distanceToLight);
 
-					vec3 LiDisc =
-						light.intensity_multiplier
-						* light.color
-						* falloff;
+          vec3 LiDisc = light.intensity_multiplier * light.color * falloff;
 
-					L +=
-						(1.0f / float(lightSamples))
-						* mat.f(
-							wiDisc,
-							hit.wo,
-							hit.shading_normal)
-						* LiDisc
-						* std::max(
-							0.0f,
-							dot(
-								wiDisc,
-								hit.shading_normal));
-				}
-			}
-		}
-	}
+          L += (1.0f / float(lightSamples)) *
+               mat.f(wiDisc, hit.wo, hit.shading_normal) * LiDisc *
+               std::max(0.0f, dot(wiDisc, hit.shading_normal));
+        }
+      }
+    }
+  }
 
+  // -----------------------------------------------------------------------------
+  // -----------------------------------------------------------------------------
+  // FEATURE: Recursive Reflection Rays
+  // Trace reflected rays recursively to simulate mirror-like reflections.
 
-	// -----------------------------------------------------------------------------
-	// -----------------------------------------------------------------------------
-	// FEATURE: Recursive Reflection Rays
-	// Trace reflected rays recursively to simulate mirror-like reflections.
+  vec3 reflectionDirection = reflect(current_ray.d, hit.shading_normal);
+  Ray reflectionRay;
 
-	vec3 reflectionDirection = reflect(current_ray.d, hit.shading_normal);
-	Ray reflectionRay;
+  // Offset origin slightly to avoid self-intersections
+  reflectionRay.o = hit.position + hit.geometry_normal * EPSILON;
 
-	// Offset origin slightly to avoid self-intersections
-	reflectionRay.o = hit.position + hit.geometry_normal * EPSILON;
-	
-	reflectionRay.d = normalize(reflectionDirection);
+  reflectionRay.d = normalize(reflectionDirection);
 
-	// Trace reflected radiance recursively
-	/*if (intersect(reflectionRay))
-	{
-		L += 0.3f * Li(reflectionRay, depth - 1);
-	}
-	else
-	{
-		L += 0.3f * Lenvironment(reflectionRay.d);
-	}*/
+  // Trace reflected radiance recursively
+  /*if (intersect(reflectionRay))
+  {
+          L += 0.3f * Li(reflectionRay, depth - 1);
+  }
+  else
+  {
+          L += 0.3f * Lenvironment(reflectionRay.d);
+  }*/
 
-	// FEATURE: Material-Based Reflectivity
-	// Adjust reflection strength based on material color intensity.
+  // FEATURE: Material-Based Reflectivity
+  // Adjust reflection strength based on material color intensity.
 
-	float reflectivity =
-		(hit.material->m_color.r +
-			hit.material->m_color.g +
-			hit.material->m_color.b) / 3.0f;
+  float reflectivity = (hit.material->m_color.r + hit.material->m_color.g +
+                        hit.material->m_color.b) /
+                       3.0f;
 
-	// Reduce overall reflection strength
-	reflectivity *= settings.reflection_strength;
+  // Reduce overall reflection strength
+  reflectivity *= settings.reflection_strength;
 
-	if (intersect(reflectionRay))
-	{
-		L += reflectivity * Li(reflectionRay, depth - 1);
-	}
-	else
-	{
-		L += reflectivity * Lenvironment(reflectionRay.d);
-	}
+  if (intersect(reflectionRay)) {
+    L += reflectivity * Li(reflectionRay, depth - 1);
+  } else {
+    L += reflectivity * Lenvironment(reflectionRay.d);
+  }
 
-	// -----------------------------------------------------------------------------
-	// -----------------------------------------------------------------------------
-	// FEATURE: Indirect Diffuse Bounce
-	// Sample a random diffuse bounce direction for simple Monte Carlo global illumination.
+  // -----------------------------------------------------------------------------
+  // -----------------------------------------------------------------------------
+  // FEATURE: Indirect Diffuse Bounce
+  // Sample a random diffuse bounce direction for simple Monte Carlo global
+  // illumination.
 
-	WiSample indirectSample = mat.sample_wi(hit.wo, hit.shading_normal);
+  WiSample indirectSample = mat.sample_wi(hit.wo, hit.shading_normal);
 
-	Ray indirectRay;
+  Ray indirectRay;
 
-	// Offset ray origin slightly to avoid self-intersections
-	indirectRay.o = hit.position + hit.geometry_normal * EPSILON;
+  indirectRay.d = normalize(indirectSample.wi);
 
-	indirectRay.d = normalize(indirectSample.wi);
+  // Offset along geometry normal: outward for reflected rays, inward for
+  // refracted rays that cross the surface.
+  const float offset_sign =
+      dot(indirectRay.d, hit.geometry_normal) >= 0.0f ? 1.0f : -1.0f;
+  indirectRay.o = hit.position + offset_sign * hit.geometry_normal * EPSILON;
 
-	// Trace indirect bounce recursively
-	if (intersect(indirectRay))
-	{
-		vec3 indirectLight = Li(indirectRay, depth - 1);
-
-		L += indirectSample.f
-			* indirectLight
-			* std::max(0.0f, dot(indirectRay.d, hit.shading_normal));
-	}
-	else
-	{
-		L += indirectSample.f
-			* Lenvironment(indirectRay.d)
-			* std::max(0.0f, dot(indirectRay.d, hit.shading_normal));
-	}
-	// -----------------------------------------------------------------------------
-	// Return the final outgoing radiance for the primary ray
-	return L;
+  // Trace indirect bounce recursively
+  if (indirectSample.pdf > 0.0f) {
+    // Use abs() so refracted rays (dot < 0) are not zeroed out.
+    const vec3 weight = indirectSample.f / indirectSample.pdf *
+                        std::abs(dot(indirectRay.d, hit.shading_normal));
+    if (intersect(indirectRay)) {
+      L += weight * Li(indirectRay, depth - 1);
+    } else {
+      L += weight * Lenvironment(indirectRay.d);
+    }
+  }
+  // -----------------------------------------------------------------------------
+  // Return the final outgoing radiance for the primary ray
+  return L * rr_weight;
 }
 
 ///////////////////////////////////////////////////////////////////////////
 /// Used to homogenize points transformed with projection matrices
 ///////////////////////////////////////////////////////////////////////////
-inline static glm::vec3 homogenize(const glm::vec4& p)
-{
-	return glm::vec3(p * (1.f / p.w));
+inline static glm::vec3 homogenize(const glm::vec4 &p) {
+  return glm::vec3(p * (1.f / p.w));
 }
 
-///////////////////////////////////////////////////////////////////////////
-// FEATURE: Bilateral Denoising Filter
-// Edge-preserving image-space filter for reducing Monte Carlo noise.
-///////////////////////////////////////////////////////////////////////////
-/*void applyBilateralFilter()
-{
-	std::vector<glm::vec3> filtered = rendered_image.data;
-
-	const float sigmaSpatial = 1.0f;
-	const float sigmaColor = 0.15f;
-
-	for (int y = 1; y < rendered_image.height - 1; y++)
-	{
-		for (int x = 1; x < rendered_image.width - 1; x++)
-		{
-			glm::vec3 center =
-				rendered_image.data[y * rendered_image.width + x];
-
-			glm::vec3 sum(0.0f);
-			float weightSum = 0.0f;
-
-			for (int ky = -1; ky <= 1; ky++)
-			{
-				for (int kx = -1; kx <= 1; kx++)
-				{
-					int nx = x + kx;
-					int ny = y + ky;
-
-					glm::vec3 neighbor =
-						rendered_image.data[
-							ny * rendered_image.width + nx];
-
-					float spatialDist =
-						float(kx * kx + ky * ky);
-
-					float colorDist =
-						glm::length(neighbor - center);
-
-					float spatialWeight =
-						exp(-spatialDist /
-							(2.0f * sigmaSpatial * sigmaSpatial));
-
-					float colorWeight =
-						exp(-(colorDist * colorDist) /
-							(2.0f * sigmaColor * sigmaColor));
-
-					float weight =
-						spatialWeight * colorWeight;
-
-					sum += neighbor * weight;
-					weightSum += weight;
-				}
-			}
-
-			filtered[y * rendered_image.width + x] =
-				sum / std::max(weightSum, 0.0001f);
-		}
-	}
-
-	rendered_image.data = filtered;
-}*/
+// ///////////////////////////////////////////////////////////////////////////
+// // FEATURE: Bilateral Denoising Filter
+// // Edge-preserving image-space filter for reducing Monte Carlo noise.
+// ///////////////////////////////////////////////////////////////////////////
+// void applyBilateralFilter() {
+//   std::vector<glm::vec3> filtered = rendered_image.data;
+//
+//   const float sigmaSpatial = 1.0f;
+//   const float sigmaColor = 0.15f;
+//
+//   for (int y = 1; y < rendered_image.height - 1; y++) {
+//     for (int x = 1; x < rendered_image.width - 1; x++) {
+//       glm::vec3 center = rendered_image.data[y * rendered_image.width + x];
+//
+//       glm::vec3 sum(0.0f);
+//       float weightSum = 0.0f;
+//
+//       for (int ky = -1; ky <= 1; ky++) {
+//         for (int kx = -1; kx <= 1; kx++) {
+//           int nx = x + kx;
+//           int ny = y + ky;
+//
+//           glm::vec3 neighbor =
+//               rendered_image.data[ny * rendered_image.width + nx];
+//
+//           float spatialDist = float(kx * kx + ky * ky);
+//
+//           float colorDist = glm::length(neighbor - center);
+//
+//           float spatialWeight =
+//               exp(-spatialDist / (2.0f * sigmaSpatial * sigmaSpatial));
+//
+//           float colorWeight =
+//               exp(-(colorDist * colorDist) / (2.0f * sigmaColor *
+//               sigmaColor));
+//
+//           float weight = spatialWeight * colorWeight;
+//
+//           sum += neighbor * weight;
+//           weightSum += weight;
+//         }
+//       }
+//
+//       filtered[y * rendered_image.width + x] =
+//           sum / std::max(weightSum, 0.0001f);
+//     }
+//   }
+//
+//   rendered_image.data = filtered;
+// }
 
 ///////////////////////////////////////////////////////////////////////////
 /// Trace one path per pixel and accumulate the result in an image
 ///////////////////////////////////////////////////////////////////////////
-void tracePaths(const glm::mat4& V, const glm::mat4& P)
-{
-	auto start = std::chrono::high_resolution_clock::now();
-	// Stop here if we have as many samples as we want
-	if((int(rendered_image.number_of_samples) > settings.max_paths_per_pixel)
-	   && (settings.max_paths_per_pixel != 0))
-	{
-		return;
-	}
-	vec3 camera_pos = vec3(glm::inverse(V) * vec4(0.0f, 0.0f, 0.0f, 1.0f));
-	// Trace one path per pixel (the omp parallel stuf magically distributes the
-	// pathtracing on all cores of your CPU).
-	int num_rays = 0;
-	vector<vec4> local_image(rendered_image.width * rendered_image.height, vec4(0.0f));
+void tracePaths(const glm::mat4 &V, const glm::mat4 &P) {
+  auto start = std::chrono::high_resolution_clock::now();
+  // Stop here if we have as many samples as we want
+  if ((int(rendered_image.number_of_samples) > settings.max_paths_per_pixel) &&
+      (settings.max_paths_per_pixel != 0)) {
+    return;
+  }
+  vec3 camera_pos = vec3(glm::inverse(V) * vec4(0.0f, 0.0f, 0.0f, 1.0f));
+  // Trace one path per pixel (the omp parallel stuf magically distributes the
+  // pathtracing on all cores of your CPU).
+  int num_rays = 0;
+  vector<vec4> local_image(rendered_image.width * rendered_image.height,
+                           vec4(0.0f));
 
 #pragma omp parallel for
-	for(int y = 0; y < rendered_image.height; y++)
-	{
-		for(int x = 0; x < rendered_image.width; x++)
-		{
-			// FEATURE: Multiple Samples Per Pixel (SPP)
-			// Trace multiple randomized paths per pixel and average them to reduce Monte Carlo noise.
-			const int spp = settings.spp;
+  for (int y = 0; y < rendered_image.height; y++) {
+    for (int x = 0; x < rendered_image.width; x++) {
+      // FEATURE: Multiple Samples Per Pixel (SPP)
+      // Trace multiple randomized paths per pixel and average them to reduce
+      // Monte Carlo noise.
+      const int spp = settings.spp;
 
-			vec3 color = vec3(0.0f);
+      vec3 color = vec3(0.0f);
 
-			for (int sample = 0; sample < spp; sample++)
-			{
-				Ray primaryRay;
-				primaryRay.o = camera_pos;
-				// Create a ray that starts in the camera position and points toward
-				// the current pixel on a virtual screen.
-				/*vec2 screenCoord = vec2(float(x) / float(rendered_image.width),
-										float(y) / float(rendered_image.height));*/
-										// -----------------------------------------------------------------------------
-										// FEATURE: Jittered Sampling / Stochastic Anti-Aliasing
-										// Randomly jitter the sampling position inside each pixel for stochastic anti-aliasing.
-				float jitterX = randf();
-				float jitterY = randf();
+      for (int sample = 0; sample < spp; sample++) {
+        Ray primaryRay;
+        primaryRay.o = camera_pos;
 
-				vec2 screenCoord = vec2(
-					(float(x) + jitterX) / float(rendered_image.width),
-					(float(y) + jitterY) / float(rendered_image.height)
-				);
-				// -----------------------------------------------------------------------------
-				// Calculate direction
-				vec4 viewCoord = vec4(screenCoord.x * 2.0f - 1.0f, screenCoord.y * 2.0f - 1.0f, 1.0f, 1.0f);
-				vec3 p = homogenize(inverse(P * V) * viewCoord);
-				primaryRay.d = normalize(p - camera_pos);
-				// Intersect ray with scene
-				/*if (intersect(primaryRay))
-				{
-					// If it hit something, evaluate the radiance from that point
-					//color = Li(primaryRay);
-					color = Li(primaryRay, settings.max_bounces);
-				}
-				else
-				{
-					// Otherwise evaluate environment
-					color = Lenvironment(primaryRay.d);
-				}*/
-				if (intersect(primaryRay))
-				{
-					color += Li(primaryRay, settings.max_bounces);
-				}
-				else
-				{
-					color += Lenvironment(primaryRay.d);
-				}
-			}
-			// Average all samples for this pixel
-			color /= float(spp);
-			
-			// Accumulate the obtained radiance to the pixels color
-			float n = float(rendered_image.number_of_samples);
-			rendered_image.data[y * rendered_image.width + x] =
-			    rendered_image.data[y * rendered_image.width + x] * (n / (n + 1.0f))
-			    + (1.0f / (n + 1.0f)) * color;
-		}
-	}
-	rendered_image.number_of_samples += 1;
+        // Jittered Sampling
+        float jitterX = randf();
+        float jitterY = randf();
 
-	// FEATURE: Bilateral Denoising
-	//applyBilateralFilter
+        vec2 screenCoord =
+            vec2((float(x) + jitterX) / float(rendered_image.width),
+                 (float(y) + jitterY) / float(rendered_image.height));
+        // -----------------------------------------------------------------------------
+        // Calculate direction
+        vec4 viewCoord = vec4(screenCoord.x * 2.0f - 1.0f,
+                              screenCoord.y * 2.0f - 1.0f, 1.0f, 1.0f);
+        vec3 p = homogenize(inverse(P * V) * viewCoord);
+        primaryRay.d = normalize(p - camera_pos);
 
-	auto end = std::chrono::high_resolution_clock::now();
+        // Intersect ray with scene
+        if (intersect(primaryRay)) {
+          // If it hit something, evaluate the radiance from that point
+          color += Li(primaryRay, settings.max_bounces);
+        } else {
+          // Otherwise evaluate environment
+          color += Lenvironment(primaryRay.d);
+        }
+      }
+      // Average all samples for this pixel
+      color /= float(spp);
 
-	double ms =
-		std::chrono::duration<double, std::milli>(
-			end - start).count();
+      // Accumulate the obtained radiance to the pixels color
+      float n = float(rendered_image.number_of_samples);
+      rendered_image.data[y * rendered_image.width + x] =
+          rendered_image.data[y * rendered_image.width + x] * (n / (n + 1.0f)) +
+          (1.0f / (n + 1.0f)) * color;
+    }
+  }
+  rendered_image.number_of_samples += 1;
 
-	std::cout << "tracePaths: "
-		<< ms
-		<< " ms\n";
+  // FEATURE: Bilateral Denoising
+  // applyBilateralFilter
+
+  auto end = std::chrono::high_resolution_clock::now();
+
+  double ms = std::chrono::duration<double, std::milli>(end - start).count();
+
+  std::cout << "tracePaths: " << ms << " ms\n";
 }
 }; // namespace pathtracer

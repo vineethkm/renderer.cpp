@@ -29,5 +29,7 @@ compile_commands.json
 
 # objects & executable
 renderer
+renderer_cpubvh
 build/
 imgui.ini
+docs/
