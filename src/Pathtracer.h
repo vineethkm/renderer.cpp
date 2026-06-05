@@ -25,6 +25,9 @@ struct Settings {
   int spp;
   // Recursive reflection strength
   float reflection_strength;
+  // Thin-lens depth of field
+  float aperture;    // lens radius in world units; 0 = pinhole (no DoF)
+  float focus_dist;  // distance along primary ray to the focal plane
 };
 extern Settings settings;
 

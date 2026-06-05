@@ -362,6 +362,10 @@ void tracePaths(const glm::mat4 &V, const glm::mat4 &P) {
     return;
   }
   vec3 camera_pos = vec3(glm::inverse(V) * vec4(0.0f, 0.0f, 0.0f, 1.0f));
+  // Camera right and up in world space: first and second rows of V's rotation.
+  // GLM is column-major so V[col][row]; rows give the camera basis vectors.
+  const vec3 cam_right = vec3(V[0][0], V[1][0], V[2][0]);
+  const vec3 cam_up    = vec3(V[0][1], V[1][1], V[2][1]);
   // Trace one path per pixel (the omp parallel stuf magically distributes the
   // pathtracing on all cores of your CPU).
   int num_rays = 0;
@@ -395,6 +399,18 @@ void tracePaths(const glm::mat4 &V, const glm::mat4 &P) {
                               screenCoord.y * 2.0f - 1.0f, 1.0f, 1.0f);
         vec3 p = homogenize(inverse(P * V) * viewCoord);
         primaryRay.d = normalize(p - camera_pos);
+
+        // Thin-lens depth of field.
+        // The pinhole ray already gives the correct focus direction; we then
+        // jitter the ray origin over the aperture disc so that only objects
+        // at focus_dist stay sharp.
+        if (settings.aperture > 0.0f) {
+          const vec3 p_focus = camera_pos +
+                               settings.focus_dist * primaryRay.d;
+          const vec2 lens    = settings.aperture * concentricSampleDisk();
+          primaryRay.o = camera_pos + lens.x * cam_right + lens.y * cam_up;
+          primaryRay.d = normalize(p_focus - primaryRay.o);
+        }
 
         // Intersect ray with scene
         if (intersect(primaryRay)) {

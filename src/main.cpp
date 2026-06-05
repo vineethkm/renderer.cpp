@@ -171,6 +171,8 @@ void initialize() {
 
   pathtracer::settings.spp = 4;
   pathtracer::settings.reflection_strength = 0.0f;
+  pathtracer::settings.aperture   = 0.0f;   // 0 = pinhole, no DoF
+  pathtracer::settings.focus_dist = 30.0f;  // good default for the Ship scene
 #ifdef _DEBUG
   pathtracer::settings.subsampling = 16;
 #else
@@ -446,6 +448,10 @@ void gui() {
     // ImGui::SliderFloat("Reflection Strength",
     //                    &pathtracer::settings.reflection_strength,
     //                    0.0f, 1.0f);
+    if (ImGui::SliderFloat("Aperture", &pathtracer::settings.aperture, 0.0f, 2.0f))
+      pathtracer::restart();
+    if (ImGui::SliderFloat("Focus Distance", &pathtracer::settings.focus_dist, 0.5f, 150.0f))
+      pathtracer::restart();
     if (ImGui::Button("Restart Pathtracing")) {
       pathtracer::restart();
     }
